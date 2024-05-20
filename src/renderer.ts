@@ -28,7 +28,7 @@ export class Renderer {
 		}
 	}
 
-	public async render(document: vscode.TextDocument, hovers: readonly vscode.Hover[]): Promise<string> {
+	public async render(document: vscode.TextDocument, hovers: readonly vscode.Hover[], showDiagnostics: boolean): Promise<string> {
 		const parts = (hovers)
 			.flatMap(hover => hover.contents)
 			.map(content => this.getMarkdown(content))
@@ -48,7 +48,17 @@ export class Renderer {
 		});
 
 		const renderedMarkdown = await marked.parse(markdown, {});
-		return this._purify.sanitize(renderedMarkdown, { USE_PROFILES: { html: true } });
+		let html = renderedMarkdown;
+		if (showDiagnostics) {
+			const ansiHighlight = await this._highlighter.getAnsiHighlighter();
+			const diagnostic = this.getDiagnostics(document, hovers, ansiHighlight);
+			html = diagnostic + '<hr>' + html;
+		}
+		return this._purify.sanitize(html, { USE_PROFILES: { html: true } });
+	}
+
+	public updateTheme() {
+		this._highlighter.updateAnsiColors();
 	}
 
 	private getMarkdown(content: vscode.MarkedString | vscode.MarkdownString): string {
@@ -61,5 +71,51 @@ export class Renderer {
 			markdown.appendCodeblock(content.value, content.language);
 			return markdown.value;
 		}
+	}
+
+	private getDiagnostics(document: vscode.TextDocument, hovers: readonly vscode.Hover[], highlighter: (code: string) => string): string {
+		const diagnostics = vscode.languages.getDiagnostics(document.uri);
+		const range = hovers[0].range;
+		if (!range) {
+			return '';
+		}
+		const diagnostic =
+			diagnostics
+				.filter((diag) => {
+					if (diag.range.intersection(range)) {
+						return diag;
+					}
+				})
+				.map((diag) => {
+					let strbuf = '';
+					const code = diag.code;
+					if (typeof code === 'string') {
+						strbuf += diag.message;
+						strbuf += `[${code}]`;
+					} else if (typeof code === 'object') {
+						if (
+							!(
+								typeof code == 'object' &&
+								typeof code.value == 'string' &&
+
+								// exclude useless msg for rust-lang
+								code.value.includes('Click for full compiler diagnostic') // TODO: use a filter setting for various languages
+							)
+						) {
+							strbuf += diag.message;
+							strbuf += `<a href="${code.target}">${code.value}</a>`;
+						}
+					}
+					const rendered = (
+						diag as unknown as { data?: { rendered?: string; }; }
+					).data?.rendered;
+					if (rendered) {
+						const decolorized = highlighter(rendered);
+						strbuf += decolorized;
+					}
+					return strbuf;
+				})
+			;
+		return diagnostic.join('<hr>');
 	}
 }

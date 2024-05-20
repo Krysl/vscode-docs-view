@@ -7,7 +7,3 @@ webpack.config.js
 
 **/*.ts
 **/*.map
-
-# Explicitly include non-bundled node_modules
-!node_modules
-node_modules/marked

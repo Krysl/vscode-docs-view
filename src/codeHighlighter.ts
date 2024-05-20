@@ -1,13 +1,16 @@
 import json5 from 'json5';
-import * as shiki from 'shiki';
-import type { IShikiTheme, Theme } from 'shiki';
-import { Highlighter } from 'shiki';
+import type { BundledTheme, Highlighter, BundledLanguage, DynamicImportLanguageRegistration, DynamicImportThemeRegistration, ThemeRegistrationResolved } from 'shiki';
+import type { GetHighlighterFactory } from '@shikijs/core';
 import * as vscode from 'vscode';
+import { DocsViewViewProvider } from './docsView';
+import { namedColors } from 'ansi-sequence-parser';
+
+type GetHighlighter = GetHighlighterFactory<BundledLanguage, BundledTheme>;
 
 declare const TextDecoder: any;
 
 // Default themes use `include` option that shiki doesn't support
-const defaultThemesMap = new Map<string, Theme>([
+const defaultThemesMap = new Map<string, BundledTheme>([
 	['Default Light+', 'light-plus'],
 	['Default Dark+', 'dark-plus'],
 ]);
@@ -38,13 +41,23 @@ export class CodeHighlighter {
 		this.needsRender = this._needsRender.event;
 
 		vscode.workspace.onDidChangeConfiguration(e => {
-			if (e.affectsConfiguration('workbench.colorTheme')) {
+			if (e.affectsConfiguration('workbench.colorTheme') || e.affectsConfiguration('workbench.colorCustomizations')) {
 				this.update().then(() => {
 					this._needsRender.fire();
 				});
 			}
 		}, null, this._disposables);
+		this.asyncInit();
+	}
+	private _getHighlighter?: GetHighlighter;
+	private bundledLanguages?: Record<BundledLanguage, DynamicImportLanguageRegistration>;
+	private bundledThemes?: Record<BundledTheme, DynamicImportThemeRegistration>;
 
+	async asyncInit() {
+		const { getHighlighter, bundledLanguages, bundledThemes } = await import('shiki');
+		this._getHighlighter = getHighlighter;
+		this.bundledLanguages = bundledLanguages;
+		this.bundledThemes = bundledThemes;
 		this.update();
 	}
 
@@ -57,9 +70,19 @@ export class CodeHighlighter {
 			item.dispose();
 		}
 	}
+	public async loadLanguage(document: vscode.TextDocument) {
+		const highlighter = await this._highlighter;
+
+		const language = document.languageId;
+		const languageId = getLanguageId(language);
+		if (highlighter && this.bundledLanguages && this.bundledLanguages[languageId as BundledLanguage]) {
+			await highlighter.loadLanguage(languageId as BundledLanguage);
+		}
+	}
 
 	public async getHighlighter(document: vscode.TextDocument): Promise<(code: string, language: string) => string> {
 		const highlighter = await this._highlighter;
+		await this.loadLanguage(document);
 
 		return (code: string, inputLanguage: string): string => {
 			const language = inputLanguage || document.languageId;
@@ -67,7 +90,11 @@ export class CodeHighlighter {
 				try {
 					const languageId = getLanguageId(language);
 					if (languageId) {
-						return highlighter.codeToHtml!(code, languageId);
+
+						return highlighter.codeToHtml!(code, {
+							lang: languageId,
+							theme: this.theme,
+						});
 					}
 				} catch (err) {
 					// noop
@@ -77,14 +104,53 @@ export class CodeHighlighter {
 			return code;
 		};
 	}
-
-	private async update() {
-		const theme = (await CodeHighlighter.getShikiTheme()) ?? 'dark-plus';
-		this._highlighter = shiki.getHighlighter({ theme });
+	public updateAnsiColors() {
+		this.theme.colors ??= {};
+		const colors = this.theme.colors;
+		const colorMap = DocsViewViewProvider.colorMap;
+		namedColors.forEach((name) => {
+			const colorName = `terminal.ansi${name[0].toUpperCase()}${name.substring(1)}`;
+			const colorKey = `--vscode-terminal-ansi${name[0].toUpperCase()}${name.substring(1)}`;
+			// if (!colorNames.includes(colorName)) {
+			const val = colorMap.get(colorKey);
+			if (val) {
+				colors[colorName] = val;
+			}
+		}
+		);
+	}
+	public async getAnsiHighlighter() {
+		const highlighter = await this._highlighter;
+		if (highlighter) {
+			return (code: string) => {
+				vscode.workspace.fs.writeFile(vscode.Uri.joinPath(vscode.workspace.workspaceFolders![0].uri, 'ansi.test.txt'), new TextEncoder().encode(code));
+				const output = highlighter.codeToHtml(code, { lang: 'ansi', theme: this.theme });
+				return output;
+			};
+		} else {
+			return (code: string) => code;
+		}
 	}
 
-	private static async getShikiTheme(): Promise<IShikiTheme | undefined> {
-		let theme: string | IShikiTheme | undefined;
+	private theme!: ThemeRegistrationResolved;
+	private async update() {
+		this._highlighter = this._getHighlighter?.(
+			{
+				themes: ['dark-plus'],
+				langs: ['ansi']
+			}
+		);
+		const bundledThemes = this.bundledThemes;
+
+		await this._highlighter?.then(async (highlighter) => {
+			const theme = await CodeHighlighter.getShikiTheme(highlighter, bundledThemes);
+			const t = highlighter.setTheme(theme);
+			this.theme = t.theme;
+		});
+	}
+
+	private static async getShikiTheme(highlighter: Highlighter, bundledThemes?: Record<BundledTheme, DynamicImportThemeRegistration>): Promise<string> {
+		let theme: string | undefined;
 
 		const currentThemeName = vscode.workspace.getConfiguration('workbench').get<string>('colorTheme');
 		if (currentThemeName && defaultThemesMap.has(currentThemeName)) {
@@ -92,28 +158,32 @@ export class CodeHighlighter {
 		} else if (currentThemeName) {
 			const colorThemePath = getCurrentThemePath(currentThemeName);
 			if (colorThemePath) {
-				theme = await shiki.loadTheme(colorThemePath.fsPath);
+				theme = currentThemeName;
+				const buffer = await vscode.workspace.fs.readFile(colorThemePath);
+				const contents = new TextDecoder("utf-8").decode(buffer);
+				const newTheme = json5.parse(contents);
 
-				theme.name = 'random'; // Shiki doesn't work without name and defaults to `Nord`
+				// newTheme.name ??= 'random';
+				await highlighter.loadTheme(newTheme);
+				const _theme = highlighter.getTheme(newTheme);
 
 				// Add explicit default foreground color rule to match VS Code
 				// https://github.com/shikijs/shiki/issues/45
-				theme.settings.push({
+				_theme.settings.push({
 					settings: {
 						foreground: await getDefaultForeground(colorThemePath),
 					}
 				});
+				_theme.bg = ' '; // Don't set bg so that we use the view's background instead
 			}
 		}
 
-		if (typeof theme === 'string') {
-			theme = await shiki.loadTheme(theme as any);
+		if (typeof theme === 'string' && bundledThemes && bundledThemes[theme as BundledTheme]) {
+			await highlighter.loadTheme(
+				theme as BundledTheme);
 		}
 
-		if (theme) {
-			theme.bg = ' '; // Don't set bg so that we use the view's background instead
-		}
-		return theme;
+		return theme ?? 'dark-plus';
 	}
 }
 
@@ -215,7 +285,7 @@ const languages = [
 	{ name: 'handlebars', language: 'handlebars', identifiers: ['handlebars', 'hbs'], source: 'text.html.handlebars' },
 	{ name: 'markdown', language: 'markdown', identifiers: ['markdown', 'md'], source: 'text.html.markdown' },
 	{ name: 'haskell', language: 'haskell', identifiers: ['hs', 'lhs'], source: 'text.html.hs' },
-	{ name: 'ocaml', language: 'ocaml', identifiers: ['ml', 'mli', 'eliom', 'eliomi'], source: 'source.ocaml.interface' },	
+	{ name: 'ocaml', language: 'ocaml', identifiers: ['ml', 'mli', 'eliom', 'eliomi'], source: 'source.ocaml.interface' },
 	{ name: 'zig', language: 'zig', identifiers: ['zig'], source: 'source.zig' },
 	{ name: 'd', language: 'd', identifiers: ['d'], source: 'source.d' },
 ];

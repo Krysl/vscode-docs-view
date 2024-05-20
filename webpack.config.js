@@ -23,9 +23,10 @@ const config = {
     devtool: 'source-map',
     externals: {
         vscode: "commonjs vscode",
-        shiki: "commonjs shiki"
+        bufferutil: "bufferutil",
+        "utf-8-validate": "utf-8-validate",
     },
-    resolve: { 
+    resolve: {
         extensions: ['.ts', '.js']
     },
     module: {
@@ -34,11 +35,6 @@ const config = {
             exclude: /node_modules/,
             use: [{
                 loader: 'ts-loader',
-                options: {
-                    compilerOptions: {
-                        "module": "es6" // override `tsconfig.json` so that TypeScript emits native JavaScript modules.
-                    }
-                }
             }]
         }]
     },

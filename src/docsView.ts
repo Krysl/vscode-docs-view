@@ -11,6 +11,7 @@ export class DocsViewViewProvider implements vscode.WebviewViewProvider {
 	public static readonly viewType = 'docsView.documentation';
 
 	private static readonly pinnedContext = 'docsView.documentationView.isPinned';
+	private static readonly showDiagnosticsContext = 'docsView.documentationView.showDiagnostics';
 
 	private readonly _disposables: vscode.Disposable[] = [];
 
@@ -18,10 +19,13 @@ export class DocsViewViewProvider implements vscode.WebviewViewProvider {
 
 	private _view?: vscode.WebviewView;
 	private _currentCacheKey: CacheKey = cacheKeyNone;
-	private _loading?: { cts: vscode.CancellationTokenSource };
+	private _loading?: { cts: vscode.CancellationTokenSource; };
 
 	private _updateMode = UpdateMode.Live;
 	private _pinned = false;
+	private _showDiagnostics = false;
+
+	public static colorMap = new Map<string, string>();
 
 	constructor(
 		private readonly _extensionUri: vscode.Uri,
@@ -35,6 +39,7 @@ export class DocsViewViewProvider implements vscode.WebviewViewProvider {
 		}, null, this._disposables);
 
 		this._renderer.needsRender(() => {
+			this.getColors();
 			this.update(/* force */ true);
 		}, undefined, this._disposables);
 
@@ -59,6 +64,28 @@ export class DocsViewViewProvider implements vscode.WebviewViewProvider {
 		_token: vscode.CancellationToken,
 	) {
 		this._view = webviewView;
+
+
+		/// get theme colors from webview
+		/// https://github.com/microsoft/vscode/issues/32813#issuecomment-798680103
+		webviewView.webview.onDidReceiveMessage((colors) => {
+			const map = DocsViewViewProvider.colorMap;
+			if (colors instanceof Array) {
+				colors.forEach((color) => {
+					if (color instanceof Object) {
+						for (const [key, value] of Object.entries(color)) {
+							if (typeof key === 'string' && typeof value === 'string' && key.length > 0) {
+								map.set(key, value);
+							}
+						}
+					}
+				});
+				console.log(`${map.size} color loaded.`);
+				this._renderer.updateTheme();
+
+				this.update();
+			}
+		});
 
 		webviewView.webview.options = {
 			enableScripts: true,
@@ -101,6 +128,18 @@ export class DocsViewViewProvider implements vscode.WebviewViewProvider {
 
 		this.update();
 	}
+	public showDiagnostics() { this.updateDiagnosticsVisibility(true); }
+	public hideDiagnostics() { this.updateDiagnosticsVisibility(false); }
+	private updateDiagnosticsVisibility(show: boolean) {
+		if (this._showDiagnostics === show) {
+			return;
+		}
+
+		this._showDiagnostics = show;
+		vscode.commands.executeCommand('setContext', DocsViewViewProvider.showDiagnosticsContext, show);
+
+		this.update(/* force */ false, true);
+	}
 
 	private updateTitle() {
 		if (!this._view) {
@@ -141,19 +180,19 @@ export class DocsViewViewProvider implements vscode.WebviewViewProvider {
 			</html>`;
 	}
 
-	private async update(ignoreCache = false) {
+	private async update(ignoreCache = false, showDiagnosticsChange = false) {
 		if (!this._view) {
 			return;
 		}
 
 		this.updateTitle();
 
-		if (this._pinned) {
+		if (this._pinned && !showDiagnosticsChange) {
 			return;
 		}
 
 		const newCacheKey = createCacheKey(vscode.window.activeTextEditor);
-		if (!ignoreCache && cacheKeyEquals(this._currentCacheKey, newCacheKey)) {
+		if (!ignoreCache && !showDiagnosticsChange && cacheKeyEquals(this._currentCacheKey, newCacheKey)) {
 			return;
 		}
 
@@ -206,6 +245,11 @@ export class DocsViewViewProvider implements vscode.WebviewViewProvider {
 			}),
 		]);
 	}
+	private getColors() {
+		this._view?.webview.postMessage({
+			type: 'getColors'
+		});
+	}
 
 	private async getHtmlContentForActiveEditor(token: vscode.CancellationToken): Promise<string> {
 		const editor = vscode.window.activeTextEditor;
@@ -219,7 +263,7 @@ export class DocsViewViewProvider implements vscode.WebviewViewProvider {
 			return '';
 		}
 
-		return hovers?.length ? this._renderer.render(editor.document, hovers) : '';
+		return hovers?.length ? this._renderer.render(editor.document, hovers, this._showDiagnostics) : '';
 	}
 
 	private getHoversAtCurrentPositionInEditor(editor: vscode.TextEditor) {

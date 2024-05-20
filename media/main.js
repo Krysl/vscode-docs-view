@@ -1,7 +1,6 @@
 //@ts-check
 
 (function () {
-    // @ts-ignore
     const vscode = acquireVsCodeApi();
 
     const main = document.getElementById('main');
@@ -15,6 +14,19 @@
     //         setNoContent(startingState.noContent);
     //     }
     // }
+    function getColors() {
+        vscode.postMessage(Object.values(document.getElementsByTagName('html')[0].style).map(
+            (rv) => {
+                return {
+                    [rv]: document
+                        .getElementsByTagName('html')[0]
+                        .style.getPropertyValue(rv),
+                };
+            }
+        ));
+    }
+
+    getColors();
 
     let hasUpdated = false;
 
@@ -34,6 +46,11 @@
                         setNoContent(message.body);
                     }
                     hasUpdated = true;
+                    break;
+                }
+            case 'getColors':
+                {
+                    getColors();
                     break;
                 }
         }

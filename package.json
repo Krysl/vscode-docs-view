@@ -2,7 +2,7 @@
 	"name": "docs-view",
 	"displayName": "Docs View",
 	"description": "Display documentation in the sidebar or panel.",
-	"version": "0.1.0",
+	"version": "0.2.0",
 	"publisher": "bierner",
 	"keywords": [
 		"documentation",
@@ -55,6 +55,18 @@
 				"title": "Unpin Current Documentation",
 				"icon": "$(pinned)",
 				"category": "Docs View"
+			},
+			{
+				"command": "docsView.documentationView.showDiagnostics",
+				"title": "Show Diagnostics",
+				"icon": "$(bug)",
+				"category": "Docs View"
+			},
+			{
+				"command": "docsView.documentationView.hideDiagnostics",
+				"title": "Hide Diagnostics",
+				"icon": "$(debug)",
+				"category": "Docs View"
 			}
 		],
 		"menus": {
@@ -66,18 +78,36 @@
 				{
 					"command": "docsView.documentationView.unpin",
 					"when": "docsView.documentationView.isPinned"
+				},
+				{
+					"command": "docsView.documentationView.showDiagnostics",
+					"when": "!docsView.documentationView.showDiagnostics"
+				},
+				{
+					"command": "docsView.documentationView.hideDiagnostics",
+					"when": "docsView.documentationView.showDiagnostics"
 				}
 			],
 			"view/title": [
 				{
 					"command": "docsView.documentationView.pin",
 					"when": "view == docsView.documentation && !docsView.documentationView.isPinned",
-					"group": "navigation"
+					"group": "navigation@100"
 				},
 				{
 					"command": "docsView.documentationView.unpin",
 					"when": "view == docsView.documentation && docsView.documentationView.isPinned",
-					"group": "navigation"
+					"group": "navigation@100"
+				},
+				{
+					"command": "docsView.documentationView.showDiagnostics",
+					"when": "view == docsView.documentation && !docsView.documentationView.showDiagnostics",
+					"group": "navigation@0"
+				},
+				{
+					"command": "docsView.documentationView.hideDiagnostics",
+					"when": "view == docsView.documentation && docsView.documentationView.showDiagnostics",
+					"group": "navigation@0"
 				}
 			]
 		},
@@ -107,24 +137,25 @@
 		"lint": "eslint ./src/**/*.ts"
 	},
 	"dependencies": {
+		"@shikijs/core": "^1.6.0",
+		"ansi-sequence-parser": "^1.1.1",
 		"dompurify": "^3.0.8",
 		"jsdom": "^23.2.0",
 		"json5": "^2.1.3",
 		"marked": "^11.1.0",
-		"oniguruma": "^7.2.1",
-		"shiki": "^0.14.7"
+		"shiki": "^1.6.0"
 	},
 	"devDependencies": {
+		"@eslint/js": "^9.3.0",
 		"@types/dompurify": "^3.0.5",
 		"@types/jsdom": "^21.1.6",
 		"@types/json5": "0.0.30",
 		"@types/node": "^14.11.2",
 		"@types/vscode": "^1.75.0",
-		"@typescript-eslint/eslint-plugin": "^6.19.0",
-		"@typescript-eslint/parser": "^6.19.0",
-		"eslint": "^8.56.0",
+		"eslint": "^8.57.0",
 		"ts-loader": "^8.0.4",
-		"typescript": "^5.3.0",
+		"typescript": "^5.4.5",
+		"typescript-eslint": "^7.9.0",
 		"webpack": "^5.72.0",
 		"webpack-cli": "^4.9.0"
 	}

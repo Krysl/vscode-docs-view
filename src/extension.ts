@@ -18,4 +18,13 @@ export function activate(context: vscode.ExtensionContext) {
 		vscode.commands.registerCommand('docsView.documentationView.unpin', () => {
 			provider.unpin();
 		}));
+	context.subscriptions.push(
+		vscode.commands.registerCommand('docsView.documentationView.showDiagnostics', () => {
+			provider.showDiagnostics();
+		}));
+
+	context.subscriptions.push(
+		vscode.commands.registerCommand('docsView.documentationView.hideDiagnostics', () => {
+			provider.hideDiagnostics();
+		}));
 }
