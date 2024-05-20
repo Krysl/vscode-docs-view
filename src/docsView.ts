@@ -258,12 +258,14 @@ export class DocsViewViewProvider implements vscode.WebviewViewProvider {
 		}
 
 		const hovers = await this.getHoversAtCurrentPositionInEditor(editor);
+		const diagnostic =
+			this._showDiagnostics ? this.getDiagnosticsAtCurrentPositionInEditor(editor) : [];
 
 		if (token.isCancellationRequested) {
 			return '';
 		}
 
-		return hovers?.length ? this._renderer.render(editor.document, hovers, this._showDiagnostics) : '';
+		return (hovers?.length || diagnostic.length) ? this._renderer.render(editor.document, hovers, diagnostic) : '';
 	}
 
 	private getHoversAtCurrentPositionInEditor(editor: vscode.TextEditor) {
@@ -271,6 +273,17 @@ export class DocsViewViewProvider implements vscode.WebviewViewProvider {
 			'vscode.executeHoverProvider',
 			editor.document.uri,
 			editor.selection.active);
+	}
+
+	private getDiagnosticsAtCurrentPositionInEditor(editor: vscode.TextEditor) {
+		const cursorPos = editor.selection.active;
+		return vscode.languages.getDiagnostics(editor.document.uri)
+			.filter((diag) => {
+				if (diag.range.contains(cursorPos)) {
+					return diag;
+				}
+			});
+
 	}
 
 	private updateConfiguration() {

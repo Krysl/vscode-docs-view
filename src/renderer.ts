@@ -28,32 +28,41 @@ export class Renderer {
 		}
 	}
 
-	public async render(document: vscode.TextDocument, hovers: readonly vscode.Hover[], showDiagnostics: boolean): Promise<string> {
+	public async render(document: vscode.TextDocument, hovers: readonly vscode.Hover[], diagnostics: vscode.Diagnostic[]): Promise<string> {
+		let html = '';
+
+		if (diagnostics.length > 0) {
+			const ansiHighlight = await this._highlighter.getAnsiHighlighter();
+			const diagnostic = this.getDiagnostics(diagnostics, ansiHighlight);
+			if (diagnostic.length > 0) {
+				html = diagnostic + '<hr>' + html;
+			}
+		}
+
 		const parts = (hovers)
 			.flatMap(hover => hover.contents)
 			.map(content => this.getMarkdown(content))
 			.filter(content => content.length > 0);
 
-		if (!parts.length) {
+		if (parts.length) { // FIXME:
+
+			const markdown = parts.join('\n---\n');
+
+			const highlight = await this._highlighter.getHighlighter(document);
+			const marked = new Marked({
+				renderer: {
+					code: (code: string, infostring: string | undefined, _escaped: boolean) => highlight(code, infostring ?? '')
+				}
+			});
+
+			const renderedMarkdown = await marked.parse(markdown, {});
+
+			html += renderedMarkdown;
+		}
+		if (html.length === 0) {
 			return '';
 		}
 
-		const markdown = parts.join('\n---\n');
-
-		const highlight = await this._highlighter.getHighlighter(document);
-		const marked = new Marked({
-			renderer: {
-				code: (code: string, infostring: string | undefined, _escaped: boolean) => highlight(code, infostring ?? '')
-			}
-		});
-
-		const renderedMarkdown = await marked.parse(markdown, {});
-		let html = renderedMarkdown;
-		if (showDiagnostics) {
-			const ansiHighlight = await this._highlighter.getAnsiHighlighter();
-			const diagnostic = this.getDiagnostics(document, hovers, ansiHighlight);
-			html = diagnostic + '<hr>' + html;
-		}
 		return this._purify.sanitize(html, { USE_PROFILES: { html: true } });
 	}
 
@@ -73,19 +82,9 @@ export class Renderer {
 		}
 	}
 
-	private getDiagnostics(document: vscode.TextDocument, hovers: readonly vscode.Hover[], highlighter: (code: string) => string): string {
-		const diagnostics = vscode.languages.getDiagnostics(document.uri);
-		const range = hovers[0].range;
-		if (!range) {
-			return '';
-		}
+	private getDiagnostics(diagnostics: vscode.Diagnostic[], highlighter: (code: string) => string): string {
 		const diagnostic =
 			diagnostics
-				.filter((diag) => {
-					if (diag.range.intersection(range)) {
-						return diag;
-					}
-				})
 				.map((diag) => {
 					let strbuf = '';
 					const code = diag.code;
