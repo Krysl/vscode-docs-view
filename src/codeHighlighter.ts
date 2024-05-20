@@ -121,15 +121,7 @@ export class CodeHighlighter {
 	}
 	public async getAnsiHighlighter() {
 		const highlighter = await this._highlighter;
-		if (highlighter) {
-			return (code: string) => {
-				vscode.workspace.fs.writeFile(vscode.Uri.joinPath(vscode.workspace.workspaceFolders![0].uri, 'ansi.test.txt'), new TextEncoder().encode(code));
-				const output = highlighter.codeToHtml(code, { lang: 'ansi', theme: this.theme });
-				return output;
-			};
-		} else {
-			return (code: string) => code;
-		}
+		return (code: string) => highlighter ? highlighter.codeToHtml(code, { lang: 'ansi', theme: this.theme }) : code;
 	}
 
 	private theme!: ThemeRegistrationResolved;
